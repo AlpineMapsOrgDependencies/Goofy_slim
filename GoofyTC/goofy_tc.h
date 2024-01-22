@@ -4,29 +4,33 @@
 // LICENSE:
 //  MIT license at the end of this file.
 
-namespace goofy
-{
-    int compressDXT1(unsigned char* result, const unsigned char* input, unsigned int width, unsigned int height, unsigned int stride);
-    int compressETC1(unsigned char* result, const unsigned char* input, unsigned int width, unsigned int height, unsigned int stride);
-}
+#include <cassert>
+#include <cstdint>
 
-#include <stdint.h>
+namespace goofy {
+int compressDXT1(unsigned char* result, const unsigned char* input, unsigned int width, unsigned int height, unsigned int stride);
+int compressETC1(unsigned char* result, const unsigned char* input, unsigned int width, unsigned int height, unsigned int stride);
+} // namespace goofy
 
 // Enable SSE2 codec
+#ifndef __ANDROID__
 #define GOOFY_SSE2 (1)
-
-#define goofy_restrict __restrict
-#define goofy_inline __forceinline
-
-#define goofy_align16(x) __declspec(align(16)) x
-
-#ifdef GOOFY_SSE2
-#include <emmintrin.h>  // SSE2
-#else
-#include <string> // memset/memcpy
 #endif
 
-#ifdef GOOFYTC_IMPLEMENTATION
+#define goofy_restrict __restrict
+
+#ifdef _WIN32
+#define goofy_align16(x) __declspec(align(16)) x
+#else
+#define goofy_align16(x) x __attribute__((aligned(16)))
+#endif
+
+#ifdef GOOFY_SSE2
+#include <emmintrin.h> // SSE2
+#else
+#include <cstring> // memset/memcpy
+#endif
+
 namespace goofy
 {
 
@@ -37,6 +41,18 @@ goofy_align16(static const uint32_t gConstMaxInt[4]) = { 0x7f7f7f7f, 0x7f7f7f7f,
 
 #ifdef GOOFY_SSE2
 typedef __m128i uint8x16_t;
+
+template<unsigned i>
+uint8_t vector_get_by_index(__m128i V)
+{
+    // take from https://stackoverflow.com/a/12625215
+    union {
+        __m128i v;
+        uint8_t a[16];
+    } converter;
+    converter.v = V;
+    return converter.a[i];
+}
 #else
 
 struct uint8x16_t
@@ -99,6 +115,12 @@ struct uint8x16_t
     };
 };
 
+template<unsigned i>
+uint8_t vector_get_by_index(uint8x16_t v)
+{
+    return v.data[i];
+}
+
 #endif
 
 
@@ -142,17 +164,17 @@ namespace simd
 // SSE2 implementation    
 #ifdef GOOFY_SSE2
 
-    goofy_inline uint8x16_t zero()
-    {
-        return _mm_setzero_si128();
+inline uint8x16_t zero()
+{
+    return _mm_setzero_si128();
     }
 
-    goofy_inline uint8x16_t fetch(const void* p)
+    inline uint8x16_t fetch(const void* p)
     {
         return _mm_load_si128((const __m128i*)p);
     }
 
-    goofy_inline uint64x2_t getAsUInt64x2(const uint8x16_t& a)
+    inline uint64x2_t getAsUInt64x2(const uint8x16_t& a)
     {
         uint64x2_t res;
         res.r0 = _mm_cvtsi128_si64(a);
@@ -160,82 +182,82 @@ namespace simd
         return res;
     }
 
-    goofy_inline uint8x16_t or(const uint8x16_t& a, const uint8x16_t& b)
+    inline uint8x16_t bit_or(const uint8x16_t& a, const uint8x16_t& b)
     {
         return _mm_or_si128(a, b);
     }
 
-    goofy_inline uint8x16_t and(const uint8x16_t& a, const uint8x16_t& b)
+    inline uint8x16_t bit_and(const uint8x16_t& a, const uint8x16_t& b)
     {
         return _mm_and_si128(a, b);
     }
 
-    goofy_inline uint8x16_t andnot(const uint8x16_t& a, const uint8x16_t& b)
+    inline uint8x16_t andnot(const uint8x16_t& a, const uint8x16_t& b)
     {
         return _mm_andnot_si128(a, b);
     }
 
-    goofy_inline uint8x16_t select(const uint8x16_t& mask, const uint8x16_t& a, const uint8x16_t& b)
+    inline uint8x16_t select(const uint8x16_t& mask, const uint8x16_t& a, const uint8x16_t& b)
     {
         return _mm_or_si128(_mm_and_si128(mask, a), _mm_andnot_si128(mask, b));
     }
 
-    goofy_inline uint8x16_t minu(const uint8x16_t& a, const uint8x16_t& b)
+    inline uint8x16_t minu(const uint8x16_t& a, const uint8x16_t& b)
     {
         return _mm_min_epu8(a, b);
     }
 
-    goofy_inline uint8x16_t maxu(const uint8x16_t& a, const uint8x16_t& b)
+    inline uint8x16_t maxu(const uint8x16_t& a, const uint8x16_t& b)
     {
         return _mm_max_epu8(a, b);
     }
 
-    goofy_inline uint8x16_t avg(const uint8x16_t& a, const uint8x16_t& b)
+    inline uint8x16_t avg(const uint8x16_t& a, const uint8x16_t& b)
     {
         return _mm_avg_epu8(a, b);
     }
 
-    goofy_inline uint8x16_t replicateU0000(const uint8x16_t& a)
+    inline uint8x16_t replicateU0000(const uint8x16_t& a)
     {
         return _mm_shuffle_epi32(a, _MM_SHUFFLE(0, 0, 0, 0));
     }
 
-    goofy_inline uint8x16_t replicateU1111(const uint8x16_t& a)
+    inline uint8x16_t replicateU1111(const uint8x16_t& a)
     {
         return _mm_shuffle_epi32(a, _MM_SHUFFLE(1, 1, 1, 1));
     }
 
-    goofy_inline uint8x16_t replicateU2222(const uint8x16_t& a)
+    inline uint8x16_t replicateU2222(const uint8x16_t& a)
     {
         return _mm_shuffle_epi32(a, _MM_SHUFFLE(2, 2, 2, 2));
     }
 
-    goofy_inline uint8x16_t replicateU3333(const uint8x16_t& a)
+    inline uint8x16_t replicateU3333(const uint8x16_t& a)
     {
         return _mm_shuffle_epi32(a, _MM_SHUFFLE(3, 3, 3, 3));
     }
 
-    goofy_inline uint8x16_t cmpeqi(const uint8x16_t& a, const uint8x16_t& b)
+    inline uint8x16_t cmpeqi(const uint8x16_t& a, const uint8x16_t& b)
     {
         return _mm_cmpeq_epi8(a, b);
     }
 
-    goofy_inline uint8x16_t cmplti(const uint8x16_t& a, const uint8x16_t& b)
+    inline uint8x16_t cmplti(const uint8x16_t& a, const uint8x16_t& b)
     {
         return _mm_cmplt_epi8(a, b);
     }
 
-    goofy_inline uint8x16_t addsatu(const uint8x16_t& a, const uint8x16_t& b)
+    inline uint8x16_t addsatu(const uint8x16_t& a, const uint8x16_t& b)
     {
         return _mm_adds_epu8(a, b);
     }
 
-    goofy_inline uint8x16_t subsatu(const uint8x16_t& a, const uint8x16_t& b)
+    inline uint8x16_t subsatu(const uint8x16_t& a, const uint8x16_t& b)
     {
         return _mm_subs_epu8(a, b);
     }
 
-    goofy_inline uint8x16x4_t transposeAs4x4(const uint8x16x4_t& v)
+    inline uint8x16x4_t transposeAs4x4(const uint8x16x4_t& v)
     {
         uint8x16_t tr0 = _mm_unpacklo_epi32(v.r0, v.r1);
         uint8x16_t tr1 = _mm_unpacklo_epi32(v.r2, v.r3);
@@ -250,7 +272,7 @@ namespace simd
         return res;
     }
 
-    goofy_inline uint8x16x3_t deinterleaveRGB(const uint8x16x4_t& v)
+    inline uint8x16x3_t deinterleaveRGB(const uint8x16x4_t& v)
     {
         uint8x16_t s0a = _mm_unpacklo_epi8(v.r0, v.r1);
         uint8x16_t s0b = _mm_unpackhi_epi8(v.r0, v.r1);
@@ -299,7 +321,7 @@ namespace simd
     //  | M | N | O | P |           | D | H | K | L |
     //  +---+---+---+---+           +---+---+---+---+
     //
-    goofy_inline uint8x16x4_t transposeAs4x4x4(const uint8x16x4_t& v)
+    inline uint8x16x4_t transposeAs4x4x4(const uint8x16x4_t& v)
     {
         const uint8x16_t s0a = _mm_unpacklo_epi8(v.r0, v.r1);
         const uint8x16_t s0b = _mm_unpackhi_epi8(v.r0, v.r1);
@@ -332,7 +354,7 @@ namespace simd
         return res;
     }
 
-    goofy_inline uint8x16x4_t zipU4x2(const uint8x16_t& a, const uint8x16_t& b, const uint8x16_t& c, const uint8x16_t& d)
+    inline uint8x16x4_t zipU4x2(const uint8x16_t& a, const uint8x16_t& b, const uint8x16_t& c, const uint8x16_t& d)
     {
         const uint8x16x4_t res = {
             _mm_unpacklo_epi32(a, b),
@@ -344,7 +366,7 @@ namespace simd
         return res;
     }
 
-    goofy_inline uint8x16x2_t zipU4(const uint8x16_t& a, const uint8x16_t& b)
+    inline uint8x16x2_t zipU4(const uint8x16_t& a, const uint8x16_t& b)
     {
         uint8x16x2_t res;
         res.r0 = _mm_unpacklo_epi32(a, b);
@@ -352,12 +374,12 @@ namespace simd
         return res;
     }
 
-    goofy_inline uint32_t moveMaskMSB(const uint8x16_t& v)
+    inline uint32_t moveMaskMSB(const uint8x16_t& v)
     {
         return (uint32_t)_mm_movemask_epi8(v);
     }
 
-    goofy_inline uint8x16x2_t zipB16(const uint8x16_t& a, const uint8x16_t& b)
+    inline uint8x16x2_t zipB16(const uint8x16_t& a, const uint8x16_t& b)
     {
         uint8x16x2_t res;
         res.r0 = _mm_unpacklo_epi8(a, b);
@@ -365,7 +387,7 @@ namespace simd
         return res;
     }
 
-    goofy_inline uint8x16_t not(const uint8x16_t& v)
+    inline uint8x16_t bitnot(const uint8x16_t& v)
     {
         return _mm_xor_si128(v, _mm_cmpeq_epi32(_mm_setzero_si128(), _mm_setzero_si128()));
     }
@@ -374,21 +396,21 @@ namespace simd
     // generic CPU implementation    
     namespace detail
     {
-        goofy_inline uint8x16_t unpacklo16(const uint8x16_t& a, const uint8x16_t& b)
-        {
-            uint8x16_t res;
-            res.s0 = a.s0;
-            res.s1 = b.s0;
-            res.s2 = a.s1;
-            res.s3 = b.s1;
-            res.s4 = a.s2;
-            res.s5 = b.s2;
-            res.s6 = a.s3;
-            res.s7 = b.s3;
-            return res;
+    inline uint8x16_t unpacklo16(const uint8x16_t& a, const uint8x16_t& b)
+    {
+        uint8x16_t res;
+        res.s0 = a.s0;
+        res.s1 = b.s0;
+        res.s2 = a.s1;
+        res.s3 = b.s1;
+        res.s4 = a.s2;
+        res.s5 = b.s2;
+        res.s6 = a.s3;
+        res.s7 = b.s3;
+        return res;
         }
 
-        goofy_inline uint8x16_t unpackhi16(const uint8x16_t& a, const uint8x16_t& b)
+        inline uint8x16_t unpackhi16(const uint8x16_t& a, const uint8x16_t& b)
         {
             uint8x16_t res;
             res.s0 = a.s4;
@@ -402,7 +424,7 @@ namespace simd
             return res;
         }
 
-        goofy_inline uint8x16_t unpacklo8(const uint8x16_t& a, const uint8x16_t& b)
+        inline uint8x16_t unpacklo8(const uint8x16_t& a, const uint8x16_t& b)
         {
             uint8x16_t res;
             res.data[0] = a.data[0];
@@ -424,7 +446,7 @@ namespace simd
             return res;
         }
 
-        goofy_inline uint8x16_t unpackhi8(const uint8x16_t& a, const uint8x16_t& b)
+        inline uint8x16_t unpackhi8(const uint8x16_t& a, const uint8x16_t& b)
         {
             uint8x16_t res;
             res.data[0] = a.data[8];
@@ -446,7 +468,7 @@ namespace simd
             return res;
         }
 
-        goofy_inline uint8x16_t unpacklo64(const uint8x16_t& a, const uint8x16_t& b)
+        inline uint8x16_t unpacklo64(const uint8x16_t& a, const uint8x16_t& b)
         {
             uint8x16_t res;
             res.l0 = a.l0;
@@ -454,7 +476,7 @@ namespace simd
             return res;
         }
 
-        goofy_inline uint8x16_t unpackhi64(const uint8x16_t& a, const uint8x16_t& b)
+        inline uint8x16_t unpackhi64(const uint8x16_t& a, const uint8x16_t& b)
         {
             uint8x16_t res;
             res.l0 = a.l1;
@@ -462,7 +484,7 @@ namespace simd
             return res;
         }
 
-        goofy_inline uint8x16_t unpacklo32(const uint8x16_t& a, const uint8x16_t& b)
+        inline uint8x16_t unpacklo32(const uint8x16_t& a, const uint8x16_t& b)
         {
             uint8x16_t res;
             res.u0 = a.u0;
@@ -472,7 +494,7 @@ namespace simd
             return res;
         }
 
-        goofy_inline uint8x16_t unpackhi32(const uint8x16_t& a, const uint8x16_t& b)
+        inline uint8x16_t unpackhi32(const uint8x16_t& a, const uint8x16_t& b)
         {
             uint8x16_t res;
             res.u0 = a.u2;
@@ -482,7 +504,7 @@ namespace simd
             return res;
         }
 
-        goofy_inline uint8x16_t replicateU0011(const uint8x16_t& a)
+        inline uint8x16_t replicateU0011(const uint8x16_t& a)
         {
             uint8x16_t res;
             res.u0 = a.u0;
@@ -492,7 +514,7 @@ namespace simd
             return res;
         }
 
-        goofy_inline uint8x16_t replicateU2233(const uint8x16_t& a)
+        inline uint8x16_t replicateU2233(const uint8x16_t& a)
         {
             uint8x16_t res;
             res.u0 = a.u2;
@@ -502,7 +524,7 @@ namespace simd
             return res;
         }
 
-        goofy_inline uint8x16_t swizzleU1302(const uint8x16_t& a)
+        inline uint8x16_t swizzleU1302(const uint8x16_t& a)
         {
             uint8x16_t res;
             res.u0 = a.u1;
@@ -514,21 +536,21 @@ namespace simd
 
     } //detail
 
-    goofy_inline uint8x16_t zero()
+    inline uint8x16_t zero()
     {
         uint8x16_t r;
         memset(&r, 0, sizeof(uint8x16_t));
         return r;
     }
 
-    goofy_inline uint8x16_t fetch(const void* p)
+    inline uint8x16_t fetch(const void* p)
     {
         uint8x16_t r;
         memcpy(&r, p, sizeof(uint8x16_t));
         return r;
     }
 
-    goofy_inline uint64x2_t getAsUInt64x2(const uint8x16_t& a)
+    inline uint64x2_t getAsUInt64x2(const uint8x16_t& a)
     {
         uint64x2_t res;
         res.r0 = a.l0;
@@ -537,7 +559,7 @@ namespace simd
     }
 
     // bit or
-    goofy_inline uint8x16_t or(const uint8x16_t& a, const uint8x16_t& b)
+    inline uint8x16_t bit_or(const uint8x16_t& a, const uint8x16_t& b)
     {
         uint8x16_t res;
         for (uint32_t i = 0; i < 16; i++)
@@ -548,7 +570,7 @@ namespace simd
     }
 
     // bit and
-    goofy_inline uint8x16_t and(const uint8x16_t& a, const uint8x16_t& b)
+    inline uint8x16_t bit_and(const uint8x16_t& a, const uint8x16_t& b)
     {
         uint8x16_t res;
         for (uint32_t i = 0; i < 16; i++)
@@ -558,7 +580,7 @@ namespace simd
         return res;
     }
 
-    goofy_inline uint8x16_t andnot(const uint8x16_t& a, const uint8x16_t& b)
+    inline uint8x16_t andnot(const uint8x16_t& a, const uint8x16_t& b)
     {
         uint8x16_t res;
         for (uint32_t i = 0; i < 16; i++)
@@ -568,7 +590,7 @@ namespace simd
         return res;
     }
 
-    goofy_inline uint32_t moveMaskMSB(const uint8x16_t& v)
+    inline uint32_t moveMaskMSB(const uint8x16_t& v)
     {
         uint32_t res = 0;
         for (uint32_t i = 0; i < 16; i++)
@@ -586,7 +608,7 @@ namespace simd
     // else {
     //  return b;
     // }
-    goofy_inline uint8x16_t select(const uint8x16_t& mask, const uint8x16_t& a, const uint8x16_t& b)
+    inline uint8x16_t select(const uint8x16_t& mask, const uint8x16_t& a, const uint8x16_t& b)
     {
         uint8x16_t res;
         for (uint32_t i = 0; i < 16; i++)
@@ -597,7 +619,7 @@ namespace simd
         return res;
     }
 
-    goofy_inline uint8x16_t minu(const uint8x16_t& a, const uint8x16_t& b)
+    inline uint8x16_t minu(const uint8x16_t& a, const uint8x16_t& b)
     {
         uint8x16_t res;
         for (uint32_t i = 0; i < 16; i++)
@@ -607,7 +629,7 @@ namespace simd
         return res;
     }
 
-    goofy_inline uint8x16_t maxu(const uint8x16_t& a, const uint8x16_t& b)
+    inline uint8x16_t maxu(const uint8x16_t& a, const uint8x16_t& b)
     {
         uint8x16_t res;
         for (uint32_t i = 0; i < 16; i++)
@@ -617,7 +639,7 @@ namespace simd
         return res;
     }
 
-    goofy_inline uint8x16_t avg(const uint8x16_t& a, const uint8x16_t& b)
+    inline uint8x16_t avg(const uint8x16_t& a, const uint8x16_t& b)
     {
         uint8x16_t res;
         for (uint32_t i = 0; i < 16; i++)
@@ -628,7 +650,7 @@ namespace simd
         return res;
     }
 
-    goofy_inline uint8x16_t replicateU0000(const uint8x16_t& a)
+    inline uint8x16_t replicateU0000(const uint8x16_t& a)
     {
         uint8x16_t res;
         res.u0 = a.u0;
@@ -638,7 +660,7 @@ namespace simd
         return res;
     }
 
-    goofy_inline uint8x16_t replicateU1111(const uint8x16_t& a)
+    inline uint8x16_t replicateU1111(const uint8x16_t& a)
     {
         uint8x16_t res;
         res.u0 = a.u1;
@@ -648,7 +670,7 @@ namespace simd
         return res;
     }
 
-    goofy_inline uint8x16_t replicateU2222(const uint8x16_t& a)
+    inline uint8x16_t replicateU2222(const uint8x16_t& a)
     {
         uint8x16_t res;
         res.u0 = a.u2;
@@ -658,7 +680,7 @@ namespace simd
         return res;
     }
 
-    goofy_inline uint8x16_t replicateU3333(const uint8x16_t& a)
+    inline uint8x16_t replicateU3333(const uint8x16_t& a)
     {
         uint8x16_t res;
         res.u0 = a.u3;
@@ -669,7 +691,7 @@ namespace simd
     }
 
     // cmp equal (signed)
-    goofy_inline uint8x16_t cmpeqi(const uint8x16_t& a, const uint8x16_t& b)
+    inline uint8x16_t cmpeqi(const uint8x16_t& a, const uint8x16_t& b)
     {
         uint8x16_t res;
         for (uint32_t i = 0; i < 16; i++)
@@ -680,7 +702,7 @@ namespace simd
     }
 
     // cmp less (signed)
-    goofy_inline uint8x16_t cmplti(const uint8x16_t& a, const uint8x16_t& b)
+    inline uint8x16_t cmplti(const uint8x16_t& a, const uint8x16_t& b)
     {
         uint8x16_t res;
         for (uint32_t i = 0; i < 16; i++)
@@ -691,7 +713,7 @@ namespace simd
     }
 
     // add unsigned saturate
-    goofy_inline uint8x16_t addsatu(const uint8x16_t& a, const uint8x16_t& b)
+    inline uint8x16_t addsatu(const uint8x16_t& a, const uint8x16_t& b)
     {
         uint8x16_t res;
         for (uint32_t i = 0; i < 16; i++)
@@ -705,7 +727,7 @@ namespace simd
     }
 
     // sub unsigned saturate
-    goofy_inline uint8x16_t subsatu(const uint8x16_t& a, const uint8x16_t& b)
+    inline uint8x16_t subsatu(const uint8x16_t& a, const uint8x16_t& b)
     {
         uint8x16_t res;
         for (uint32_t i = 0; i < 16; i++)
@@ -734,7 +756,7 @@ namespace simd
     // R2  = | a2.rgba | b2.rgba | c2.rgba | d2.rgba |
     // R3  = | a3.rgba | b3.rgba | c3.rgba | d3.rgba |
     //
-    goofy_inline uint8x16x4_t transposeAs4x4(const uint8x16x4_t& v)
+    inline uint8x16x4_t transposeAs4x4(const uint8x16x4_t& v)
     {
         // a0, b0, a1, b1
         const uint8x16_t tr0 = detail::unpacklo32(v.r0, v.r1);
@@ -773,7 +795,7 @@ namespace simd
     // R2  = | a0.b | a1.b | a2.b | a3.b | b0.b | b1.b | b2.b | b3.b | c0.b | c1.b | c2.b | c3.b | d0.b | d1.b | d2.b | d3.b |
     // R3  = | a0.a | a1.a | a2.a | a3.a | b0.a | b1.a | b2.a | b3.a | c0.a | c1.a | c2.a | c3.a | d0.a | d1.a | d2.a | d3.a |
     //
-    goofy_inline uint8x16x3_t deinterleaveRGB(const uint8x16x4_t& v)
+    inline uint8x16x3_t deinterleaveRGB(const uint8x16x4_t& v)
     {
         // step 1
 
@@ -851,7 +873,7 @@ namespace simd
     //  | M | N | O | P |           | B | F | J | N |
     //  +---+---+---+---+           +---+---+---+---+
     //
-    goofy_inline uint8x16x4_t transposeAs4x4x4(const uint8x16x4_t& v)
+    inline uint8x16x4_t transposeAs4x4x4(const uint8x16x4_t& v)
     {
         // step 1
 
@@ -942,7 +964,7 @@ namespace simd
     // R2  = | c0.rgba | d0.rgba | c1.rgba | d1.rgba |
     // R3  = | c2.rgba | d2.rgba | c3.rgba | d3.rgba |
     //
-    goofy_inline uint8x16x4_t zipU4x2(const uint8x16_t& a, const uint8x16_t& b, const uint8x16_t& c, const uint8x16_t& d)
+    inline uint8x16x4_t zipU4x2(const uint8x16_t& a, const uint8x16_t& b, const uint8x16_t& c, const uint8x16_t& d)
     {
         const uint8x16x4_t res = {
                 detail::unpacklo32(a, b),
@@ -964,7 +986,7 @@ namespace simd
     // R0  = | a0.rgba | b0.rgba | a1.rgba | b1.rgba |
     // R1  = | a2.rgba | b2.rgba | a3.rgba | b3.rgba |
     //
-    goofy_inline uint8x16x2_t zipU4(const uint8x16_t& a, const uint8x16_t& b)
+    inline uint8x16x2_t zipU4(const uint8x16_t& a, const uint8x16_t& b)
     {
         uint8x16x2_t res;
         res.r0 = detail::unpacklo32(a, b);
@@ -983,7 +1005,7 @@ namespace simd
     // R0  = | a0 | b0 | a1 | b1 | a2 | b2 | a3 | b3 | a4 | b4 | a5 | b5 | a6 | b6 | a7 | b7 |
     // R1  = | a8 | b8 | a9 | b9 | aA | bA | aB | bB | aC | bC | aD | bD | aE | bE | aF | bF |
     //
-    goofy_inline uint8x16x2_t zipB16(const uint8x16_t& a, const uint8x16_t& b)
+    inline uint8x16x2_t zipB16(const uint8x16_t& a, const uint8x16_t& b)
     {
         uint8x16x2_t res;
         res.r0 = detail::unpacklo8(a, b);
@@ -991,7 +1013,7 @@ namespace simd
         return res;
     }
 
-    goofy_inline uint8x16_t not(const uint8x16_t& v)
+    inline uint8x16_t bitnot(const uint8x16_t& v)
     {
         uint8x16_t res;
         for (int i = 0; i < 16; i++)
@@ -1042,8 +1064,10 @@ enum GoofyCodecType
 // Encode 4 DXT1/ETC1 at once
 //
 template<GoofyCodecType CODEC_TYPE>
-goofy_inline void goofySimdEncode(const unsigned char* goofy_restrict inputRGBA, size_t inputStride, unsigned char* goofy_restrict pResult)
+inline void goofySimdEncode(const unsigned char* goofy_restrict inputRGBA, size_t inputStride, unsigned char* goofy_restrict pResult)
 {
+    assert(uintptr_t(inputRGBA) % 64 == 0); // make sure the input is 64 bit aligned.
+
     // Fetch 16x4 pixels from the buffer(four DX blocks)
     // 16 pixels wide is better for the CPU cache utilization (64 bytes per line) and it is better for SIMD lane utilization
     // -----------------------------------------------------------
@@ -1188,7 +1212,7 @@ goofy_inline void goofySimdEncode(const unsigned char* goofy_restrict inputRGBA,
     const uint8x16_t bl0GezMask = simd::cmpeqi(bl0NegDiffY, constZero);
 
     // Absolute diffference of brightness (per-pixel in block)
-    const uint8x16_t bl0AbsDiffY = simd::or(bl0PosDiffY, bl0NegDiffY);
+    const uint8x16_t bl0AbsDiffY = simd::bit_or(bl0PosDiffY, bl0NegDiffY);
 
     // get quantization threshold for current block
     const uint8x16_t bl0QThreshold = simd::replicateU0000(blQThreshold);
@@ -1218,7 +1242,7 @@ goofy_inline void goofySimdEncode(const unsigned char* goofy_restrict inputRGBA,
     const uint8x16_t bl1PosDiffY = simd::minu(simd::subsatu(bl1Y, bl1MidY), constMaxInt);
     const uint8x16_t bl1NegDiffY = simd::minu(simd::subsatu(bl1MidY, bl1Y), constMaxInt);
     const uint8x16_t bl1GezMask = simd::cmpeqi(bl1NegDiffY, constZero);
-    const uint8x16_t bl1AbsDiffY = simd::or(bl1PosDiffY, bl1NegDiffY);
+    const uint8x16_t bl1AbsDiffY = simd::bit_or(bl1PosDiffY, bl1NegDiffY);
     const uint8x16_t bl1QThreshold = simd::replicateU1111(blQThreshold);
     const uint8x16_t bl1LqtMask = simd::cmplti(bl1AbsDiffY, bl1QThreshold);
 
@@ -1229,7 +1253,7 @@ goofy_inline void goofySimdEncode(const unsigned char* goofy_restrict inputRGBA,
     const uint8x16_t bl2PosDiffY = simd::minu(simd::subsatu(bl2Y, bl2MidY), constMaxInt);
     const uint8x16_t bl2NegDiffY = simd::minu(simd::subsatu(bl2MidY, bl2Y), constMaxInt);
     const uint8x16_t bl2GezMask = simd::cmpeqi(bl2NegDiffY, constZero);
-    const uint8x16_t bl2AbsDiffY = simd::or(bl2PosDiffY, bl2NegDiffY);
+    const uint8x16_t bl2AbsDiffY = simd::bit_or(bl2PosDiffY, bl2NegDiffY);
     const uint8x16_t bl2QThreshold = simd::replicateU2222(blQThreshold);
     const uint8x16_t bl2LqtMask = simd::cmplti(bl2AbsDiffY, bl2QThreshold);
 
@@ -1240,7 +1264,7 @@ goofy_inline void goofySimdEncode(const unsigned char* goofy_restrict inputRGBA,
     const uint8x16_t bl3PosDiffY = simd::minu(simd::subsatu(bl3Y, bl3MidY), constMaxInt);
     const uint8x16_t bl3NegDiffY = simd::minu(simd::subsatu(bl3MidY, bl3Y), constMaxInt);
     const uint8x16_t bl3GezMask = simd::cmpeqi(bl3NegDiffY, constZero);
-    const uint8x16_t bl3AbsDiffY = simd::or(bl3PosDiffY, bl3NegDiffY);
+    const uint8x16_t bl3AbsDiffY = simd::bit_or(bl3PosDiffY, bl3NegDiffY);
     const uint8x16_t bl3QThreshold = simd::replicateU3333(blQThreshold);
     const uint8x16_t bl3LqtMask = simd::cmplti(bl3AbsDiffY, bl3QThreshold);
 
@@ -1262,10 +1286,10 @@ goofy_inline void goofySimdEncode(const unsigned char* goofy_restrict inputRGBA,
         // Zip two masks to match DX bits order
         // Gez0 | Lqt0 | Gez1 | Lqt1 | Gez2 | Lqt2 | Gez3 | Lqt3 | Gez4 | Lqt4 | Gez5 | Lqt5 | Gez6 | Lqt6 | Gez7 | Lqt7
         // Gez8 | Lqt8 | Gez9 | Lqt9 | GezA | LqtA | GezB | LqtB | GezC | LqtC | GezD | LqtD | GezE | LqtE | GezF | LqtF
-        const uint8x16x2_t bl0RawIndices = simd::zipB16(simd::not(bl0GezMask), bl0LqtMask);
-        const uint8x16x2_t bl3RawIndices = simd::zipB16(simd::not(bl3GezMask), bl3LqtMask);
-        const uint8x16x2_t bl2RawIndices = simd::zipB16(simd::not(bl2GezMask), bl2LqtMask);
-        const uint8x16x2_t bl1RawIndices = simd::zipB16(simd::not(bl1GezMask), bl1LqtMask);
+        const uint8x16x2_t bl0RawIndices = simd::zipB16(simd::bitnot(bl0GezMask), bl0LqtMask);
+        const uint8x16x2_t bl3RawIndices = simd::zipB16(simd::bitnot(bl3GezMask), bl3LqtMask);
+        const uint8x16x2_t bl2RawIndices = simd::zipB16(simd::bitnot(bl2GezMask), bl2LqtMask);
+        const uint8x16x2_t bl1RawIndices = simd::zipB16(simd::bitnot(bl1GezMask), bl1LqtMask);
 
         // Bytes to bits
         uint32_t bl0Indices = simd::moveMaskMSB(bl0RawIndices.r0) | (simd::moveMaskMSB(bl0RawIndices.r1) << 16);
@@ -1331,12 +1355,10 @@ goofy_inline void goofySimdEncode(const unsigned char* goofy_restrict inputRGBA,
     else if (CODEC_TYPE == GOOFY_ETC1)
     {
         // Combined masks (major bit = GreaterEqualZero  other 7 bits = LessQuantizationThreshold)
-        const uint8x16x4_t blMasks = {
-            simd::or(simd::andnot(constMaxInt, bl0GezMask), simd::and(bl0LqtMask, constMaxInt)),
-            simd::or(simd::andnot(constMaxInt, bl1GezMask), simd::and(bl1LqtMask, constMaxInt)),
-            simd::or(simd::andnot(constMaxInt, bl2GezMask), simd::and(bl2LqtMask, constMaxInt)),
-            simd::or(simd::andnot(constMaxInt, bl3GezMask), simd::and(bl3LqtMask, constMaxInt))
-        };
+        const uint8x16x4_t blMasks = {simd::bit_or(simd::andnot(constMaxInt, bl0GezMask), simd::bit_and(bl0LqtMask, constMaxInt)),
+                                      simd::bit_or(simd::andnot(constMaxInt, bl1GezMask), simd::bit_and(bl1LqtMask, constMaxInt)),
+                                      simd::bit_or(simd::andnot(constMaxInt, bl2GezMask), simd::bit_and(bl2LqtMask, constMaxInt)),
+                                      simd::bit_or(simd::andnot(constMaxInt, bl3GezMask), simd::bit_and(bl3LqtMask, constMaxInt))};
 
         //  +---+---+---+---+           +---+---+---+---+
         //  | A | B | C | D |           | C | G | K | O |
@@ -1355,10 +1377,10 @@ goofy_inline void goofySimdEncode(const unsigned char* goofy_restrict inputRGBA,
         const uint32_t bl2PosOrZero = simd::moveMaskMSB(blMasksTr.r2);
         const uint32_t bl3PosOrZero = simd::moveMaskMSB(blMasksTr.r3);
 
-        uint8x16_t bl0LessThanQtMask = simd::and(blMasksTr.r0, constMaxInt);
-        uint8x16_t bl1LessThanQtMask = simd::and(blMasksTr.r1, constMaxInt);
-        uint8x16_t bl2LessThanQtMask = simd::and(blMasksTr.r2, constMaxInt);
-        uint8x16_t bl3LessThanQtMask = simd::and(blMasksTr.r3, constMaxInt);
+        uint8x16_t bl0LessThanQtMask = simd::bit_and(blMasksTr.r0, constMaxInt);
+        uint8x16_t bl1LessThanQtMask = simd::bit_and(blMasksTr.r1, constMaxInt);
+        uint8x16_t bl2LessThanQtMask = simd::bit_and(blMasksTr.r2, constMaxInt);
+        uint8x16_t bl3LessThanQtMask = simd::bit_and(blMasksTr.r3, constMaxInt);
         bl0LessThanQtMask = simd::addsatu(bl0LessThanQtMask, bl0LessThanQtMask);
         bl1LessThanQtMask = simd::addsatu(bl1LessThanQtMask, bl1LessThanQtMask);
         bl2LessThanQtMask = simd::addsatu(bl2LessThanQtMask, bl2LessThanQtMask);
@@ -1413,7 +1435,7 @@ goofy_inline void goofySimdEncode(const unsigned char* goofy_restrict inputRGBA,
         const uint8x16_t blPosCorrectionY = simd::minu(simd::subsatu(blMidY, blAvgY.r0), constMaxInt);
         const uint8x16_t blNegCorrectionY = simd::minu(simd::subsatu(blAvgY.r0, blMidY), constMaxInt);
         const uint8x16_t blCorrectionYGezMask = simd::cmpeqi(blNegCorrectionY, constZero);
-        const uint8x16_t blCorrectionYAbs = simd::or(blPosCorrectionY, blNegCorrectionY);
+        const uint8x16_t blCorrectionYAbs = simd::bit_or(blPosCorrectionY, blNegCorrectionY);
 
         // Get the color in the middle between  min/max colors of the block.
         // NOTE: this is not the same as an average block color.
@@ -1450,26 +1472,25 @@ goofy_inline void goofySimdEncode(const unsigned char* goofy_restrict inputRGBA,
 
         uint32_t* goofy_restrict pDest = (uint32_t* goofy_restrict)pResult;
 
-        const uint32_t block0a = etc1BrighnessRangeTocontrolByte[blRangeY.m128i_u8[0]] | ((baseColors.r0 << 3ull) & 0xFFFFFF);
+        const uint32_t block0a = etc1BrighnessRangeTocontrolByte[vector_get_by_index<0>(blRangeY)] | ((baseColors.r0 << 3ull) & 0xFFFFFF);
         const uint32_t block0b = ~(bl0PosOrZero | (bl0LessThanQt << 16));
         *pDest = block0a; pDest++; *pDest = block0b;
 
-        const uint32_t block1a = etc1BrighnessRangeTocontrolByte[blRangeY.m128i_u8[4]] | ((baseColors.r0 >> 29ull) & 0xFFFFFF);
+        const uint32_t block1a = etc1BrighnessRangeTocontrolByte[vector_get_by_index<4>(blRangeY)] | ((baseColors.r0 >> 29ull) & 0xFFFFFF);
         const uint32_t block1b = ~(bl1PosOrZero | (bl1LessThanQt << 16));
         pDest++; *pDest = block1a; pDest++; *pDest = block1b;
 
-        const uint32_t block2a = etc1BrighnessRangeTocontrolByte[blRangeY.m128i_u8[8]] | ((baseColors.r1 << 3ull) & 0xFFFFFF);
+        const uint32_t block2a = etc1BrighnessRangeTocontrolByte[vector_get_by_index<8>(blRangeY)] | ((baseColors.r1 << 3ull) & 0xFFFFFF);
         const uint32_t block2b = ~(bl2PosOrZero | (bl2LessThanQt << 16));
         pDest++; *pDest = block2a; pDest++; *pDest = block2b;
 
-        const uint32_t block3a = etc1BrighnessRangeTocontrolByte[blRangeY.m128i_u8[12]] | ((baseColors.r1 >> 29ull) & 0xFFFFFF);
+        const uint32_t block3a = etc1BrighnessRangeTocontrolByte[vector_get_by_index<12>(blRangeY)] | ((baseColors.r1 >> 29ull) & 0xFFFFFF);
         const uint32_t block3b = ~(bl3PosOrZero | (bl3LessThanQt << 16));
         pDest++; *pDest = block3a; pDest++; *pDest = block3b;
     }
 }
 
-
-int compressDXT1(unsigned char* result, const unsigned char* input, unsigned int width, unsigned int height, unsigned int stride)
+inline int compressDXT1(unsigned char* result, const unsigned char* input, unsigned int width, unsigned int height, unsigned int stride)
 {
     // those checks are required because of 4x1 block window inside the compressor
     if (width % 16 != 0)
@@ -1500,7 +1521,7 @@ int compressDXT1(unsigned char* result, const unsigned char* input, unsigned int
     return 0;
 }
 
-int compressETC1(unsigned char* result, const unsigned char* input, unsigned int width, unsigned int height, unsigned int stride)
+inline int compressETC1(unsigned char* result, const unsigned char* input, unsigned int width, unsigned int height, unsigned int stride)
 {
     // those checks are required because of 4x1 block window inside the compressor
     if (width % 16 != 0)
@@ -1534,14 +1555,8 @@ int compressETC1(unsigned char* result, const unsigned char* input, unsigned int
 
 
 #undef goofy_restrict
-#undef goofy_inline
 #undef goofy_align16
-}
-#endif
-
-
-
-
+} // namespace goofy
 
 // Copyright (c) 2020 Sergey Makeev <sergeymakeev@hotmail.com>
 //
