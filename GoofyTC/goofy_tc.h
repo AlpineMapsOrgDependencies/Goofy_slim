@@ -1066,7 +1066,7 @@ enum GoofyCodecType
 template<GoofyCodecType CODEC_TYPE>
 inline void goofySimdEncode(const unsigned char* goofy_restrict inputRGBA, size_t inputStride, unsigned char* goofy_restrict pResult)
 {
-    assert(uintptr_t(inputRGBA) % 64 == 0); // make sure the input is 64 bit aligned.
+    assert(uintptr_t(inputRGBA) % 16 == 0); // make sure the input is 16 byte aligned.
 
     // Fetch 16x4 pixels from the buffer(four DX blocks)
     // 16 pixels wide is better for the CPU cache utilization (64 bytes per line) and it is better for SIMD lane utilization
